@@ -17,7 +17,6 @@ export default function Dashboard() {
   const [expiringCount, setExpiringCount] = useState(0)
   const [lowStockItems, setLowStockItems] = useState<any[]>([])
   const [expiringItems, setExpiringItems] = useState<any[]>([])
-  const [topProducts, setTopProducts] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -88,16 +87,7 @@ export default function Dashboard() {
     const weekAgo = new Date()
     weekAgo.setDate(weekAgo.getDate() - 7)
 
-    const { data: recentItems } = await supabase
-      .from('sale_items')
-      .select('product_id, quantity, products(name)')
-      .gte('sale_id', '') // we will improve later
-      .limit(50)
-
-    // For now we keep top products simple
-    setTopProducts([])
-
-    setLoading(false)
+   
   }
 
   return (
