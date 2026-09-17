@@ -17,7 +17,7 @@ export default function Dashboard() {
   const [expiringCount, setExpiringCount] = useState(0)
   const [lowStockItems, setLowStockItems] = useState<any[]>([])
   const [expiringItems, setExpiringItems] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
+  const [, setLoading] = useState(true)
 
   useEffect(() => {
     fetchDashboardData()
