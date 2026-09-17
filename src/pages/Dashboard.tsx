@@ -17,15 +17,13 @@ export default function Dashboard() {
   const [expiringCount, setExpiringCount] = useState(0)
   const [lowStockItems, setLowStockItems] = useState<any[]>([])
   const [expiringItems, setExpiringItems] = useState<any[]>([])
-  const [, setLoading] = useState(true)
+  const [topProducts, setTopProducts] = useState<any[]>([])
 
   useEffect(() => {
     fetchDashboardData()
   }, [])
 
   async function fetchDashboardData() {
-    setLoading(true)
-
     const today = new Date().toISOString().split('T')[0]
 
     // Today's sales
@@ -83,11 +81,31 @@ export default function Dashboard() {
       }))
     }
 
-    // Top selling (last 7 days) - simple version
+    // Top selling products (last 7 days)
     const weekAgo = new Date()
     weekAgo.setDate(weekAgo.getDate() - 7)
+    const weekAgoStr = weekAgo.toISOString()
 
-   
+    const { data: recentItems } = await supabase
+      .from('sale_items')
+      .select('quantity, line_total, products(name), sales!inner(bill_date)')
+      .gte('sales.bill_date', weekAgoStr)
+
+    if (recentItems) {
+      const map: Record<string, any> = {}
+      recentItems.forEach((item: any) => {
+        const name = item.products?.name || 'Unknown'
+        if (!map[name]) {
+          map[name] = { name, quantity: 0, amount: 0 }
+        }
+        map[name].quantity += Number(item.quantity)
+        map[name].amount += Number(item.line_total)
+      })
+      const sorted = Object.values(map)
+        .sort((a: any, b: any) => b.quantity - a.quantity)
+        .slice(0, 5)
+      setTopProducts(sorted)
+    }
   }
 
   return (
@@ -156,7 +174,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Alerts Section */}
+      {/* Alerts + Top Selling */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-white rounded-2xl p-6 shadow border border-gray-100">
           <div className="flex items-center justify-between mb-4">
@@ -179,16 +197,21 @@ export default function Dashboard() {
 
         <div className="bg-white rounded-2xl p-6 shadow border border-gray-100">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold text-gray-800">Expiring Soon (15 days)</h3>
+            <h3 className="font-semibold text-gray-800">Top Selling (Last 7 Days)</h3>
           </div>
-          {expiringItems.length === 0 ? (
-            <p className="text-gray-400 text-sm">No items expiring soon</p>
+          {topProducts.length === 0 ? (
+            <p className="text-gray-400 text-sm">No sales data yet</p>
           ) : (
             <div className="space-y-3">
-              {expiringItems.map(item => (
-                <div key={item.id} className="flex items-center justify-between text-sm">
-                  <span className="text-gray-700">{item.product_name}</span>
-                  <span className="text-orange-600 font-medium">{item.expiry_date}</span>
+              {topProducts.map((item, index) => (
+                <div key={item.name} className="flex items-center justify-between text-sm">
+                  <div className="flex items-center gap-2">
+                    <span className="w-5 h-5 rounded-full bg-blue-100 text-[#0056A4] text-xs flex items-center justify-center font-medium">
+                      {index + 1}
+                    </span>
+                    <span className="text-gray-700">{item.name}</span>
+                  </div>
+                  <span className="font-medium text-gray-800">{item.quantity} sold</span>
                 </div>
               ))}
             </div>

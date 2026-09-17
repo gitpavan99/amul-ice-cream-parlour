@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase'
 import type { Product, StockBatch, Category } from '../types'
 import { 
   ArrowLeft, Plus, Trash2, Edit2, Save, X, 
-  Package
+  Package, Upload
 } from 'lucide-react'
 
 export default function ProductDetail() {
@@ -17,9 +17,9 @@ export default function ProductDetail() {
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [uploading, setUploading] = useState(false)
   const [error, setError] = useState('')
 
-  // Edit form
   const [form, setForm] = useState({
     name: '',
     category_id: '',
@@ -28,9 +28,9 @@ export default function ProductDetail() {
     selling_price: '',
     cost_price: '',
     min_stock_level: '5',
+    image_url: '',
   })
 
-  // New batch form
   const [showBatchForm, setShowBatchForm] = useState(false)
   const [batchForm, setBatchForm] = useState({
     source: 'Fresh',
@@ -41,7 +41,6 @@ export default function ProductDetail() {
     notes: '',
   })
 
-  // Stock Adjustment form
   const [showAdjustForm, setShowAdjustForm] = useState(false)
   const [adjustForm, setAdjustForm] = useState({
     type: 'adjustment',
@@ -83,6 +82,7 @@ export default function ProductDetail() {
         selling_price: String(prod.selling_price || ''),
         cost_price: prod.cost_price ? String(prod.cost_price) : '',
         min_stock_level: String(prod.min_stock_level || 5),
+        image_url: (prod as any).image_url || '',
       })
     }
     if (bats) setBatches(bats)
@@ -109,6 +109,7 @@ export default function ProductDetail() {
         selling_price: Number(form.selling_price) || 0,
         cost_price: form.cost_price ? Number(form.cost_price) : null,
         min_stock_level: Number(form.min_stock_level) || 5,
+        image_url: form.image_url || null,
         updated_at: new Date().toISOString(),
       })
       .eq('id', id)
@@ -121,6 +122,41 @@ export default function ProductDetail() {
       setEditing(false)
       fetchData()
     }
+  }
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    setUploading(true)
+    const fileExt = file.name.split('.').pop()
+    const fileName = `product-${id}-${Date.now()}.${fileExt}`
+
+    const { error: uploadError } = await supabase.storage
+      .from('parlour-assets')
+      .upload(fileName, file, { upsert: true })
+
+    if (uploadError) {
+      setError('Image upload failed: ' + uploadError.message)
+      setUploading(false)
+      return
+    }
+
+    const { data } = supabase.storage
+      .from('parlour-assets')
+      .getPublicUrl(fileName)
+
+    // Update form and also save immediately
+    const newUrl = data.publicUrl
+    setForm(prev => ({ ...prev, image_url: newUrl }))
+
+    await supabase
+      .from('products')
+      .update({ image_url: newUrl })
+      .eq('id', id)
+
+    setUploading(false)
+    fetchData()
   }
 
   const handleAddBatch = async (e: React.FormEvent) => {
@@ -168,7 +204,6 @@ export default function ProductDetail() {
       return
     }
 
-    // For wastage we always reduce stock (make it negative)
     const adjustmentQty = adjustForm.type === 'wastage' ? -Math.abs(qty) : qty
 
     const { error: batchError } = await supabase.from('stock_batches').insert({
@@ -269,8 +304,35 @@ export default function ProductDetail() {
         <div className="bg-red-50 text-red-600 text-sm p-3 rounded-lg">{error}</div>
       )}
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      {/* Product Image + Summary */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        {/* Image */}
+        <div className="bg-white rounded-xl border p-4 flex flex-col items-center justify-center">
+          {(product as any).image_url || form.image_url ? (
+            <img 
+              src={(product as any).image_url || form.image_url} 
+              alt={product.name}
+              className="w-full h-40 object-contain rounded-lg"
+            />
+          ) : (
+            <div className="w-full h-40 bg-gray-50 rounded-lg flex items-center justify-center text-gray-400">
+              <Package size={40} />
+            </div>
+          )}
+          <label className="mt-3 cursor-pointer inline-flex items-center gap-2 text-sm text-[#0056A4] hover:underline">
+            <Upload size={14} />
+            {uploading ? 'Uploading...' : 'Upload Image'}
+            <input
+              type="file"
+              accept="image/*"
+              onChange={handleImageUpload}
+              className="hidden"
+              disabled={uploading}
+            />
+          </label>
+        </div>
+
+        {/* Summary Cards */}
         <div className="bg-white rounded-xl border p-5">
           <p className="text-sm text-gray-500">Total Quantity</p>
           <p className="text-3xl font-bold text-gray-800 mt-1">{totalQty}</p>
@@ -420,7 +482,6 @@ export default function ProductDetail() {
           </div>
         </div>
 
-        {/* Stock Adjustment Form */}
         {showAdjustForm && (
           <form onSubmit={handleStockAdjustment} className="p-5 bg-orange-50 border-b space-y-4">
             <h4 className="font-medium text-orange-800">Stock Adjustment / Wastage</h4>
@@ -460,25 +521,16 @@ export default function ProductDetail() {
               </div>
             </div>
             <div className="flex gap-2">
-              <button
-                type="submit"
-                disabled={saving}
-                className="px-4 py-2 bg-orange-600 text-white rounded-lg text-sm hover:bg-orange-700"
-              >
+              <button type="submit" disabled={saving} className="px-4 py-2 bg-orange-600 text-white rounded-lg text-sm hover:bg-orange-700">
                 {saving ? 'Saving...' : 'Apply Adjustment'}
               </button>
-              <button
-                type="button"
-                onClick={() => setShowAdjustForm(false)}
-                className="px-4 py-2 border rounded-lg text-sm"
-              >
+              <button type="button" onClick={() => setShowAdjustForm(false)} className="px-4 py-2 border rounded-lg text-sm">
                 Cancel
               </button>
             </div>
           </form>
         )}
 
-        {/* Add Batch Form */}
         {showBatchForm && (
           <form onSubmit={handleAddBatch} className="p-5 bg-gray-50 border-b space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -544,18 +596,10 @@ export default function ProductDetail() {
               </div>
             </div>
             <div className="flex gap-2">
-              <button
-                type="submit"
-                disabled={saving}
-                className="px-4 py-2 bg-[#0056A4] text-white rounded-lg text-sm"
-              >
+              <button type="submit" disabled={saving} className="px-4 py-2 bg-[#0056A4] text-white rounded-lg text-sm">
                 {saving ? 'Adding...' : 'Add Batch'}
               </button>
-              <button
-                type="button"
-                onClick={() => setShowBatchForm(false)}
-                className="px-4 py-2 border rounded-lg text-sm"
-              >
+              <button type="button" onClick={() => setShowBatchForm(false)} className="px-4 py-2 border rounded-lg text-sm">
                 Cancel
               </button>
             </div>
@@ -595,10 +639,7 @@ export default function ProductDetail() {
                     <td className="px-4 py-3 text-gray-600">{b.expiry_date || '—'}</td>
                     <td className="px-4 py-3 text-gray-500">{b.notes || '—'}</td>
                     <td className="px-4 py-3 text-center">
-                      <button
-                        onClick={() => handleDeleteBatch(b.id)}
-                        className="text-red-500 hover:text-red-700"
-                      >
+                      <button onClick={() => handleDeleteBatch(b.id)} className="text-red-500 hover:text-red-700">
                         <Trash2 size={16} />
                       </button>
                     </td>
